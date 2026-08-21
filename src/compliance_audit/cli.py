@@ -9,6 +9,7 @@ Uso:
 
 import json
 import sys
+import subprocess
 
 import click
 from rich.console import Console
@@ -96,6 +97,15 @@ def main(
         console.print(f"\n[dim]Gerando PDF em {output_path}...[/dim]")
         generate_pdf(report, output_path)
         console.print(f"[green]Relatorio PDF gerado: {output_path}[/green]")
+        # Abrir PDF automaticamente
+        import os
+        import platform
+        if platform.system() == "Windows":
+            os.startfile(output_path)
+        elif platform.system() == "Darwin":
+            subprocess.run(["open", output_path])
+        else:
+            subprocess.run(["xdg-open", output_path])
 
     elif output_format == "json":
         report_dict = report.model_dump()

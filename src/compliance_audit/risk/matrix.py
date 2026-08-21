@@ -110,8 +110,10 @@ def create_risk_item(
     Returns:
         RiskItem com scoring calculado e mapeamento de conformidade
     """
-    likelihood = SEVERITY_TO_LIKELIHOOD.get(severity, 3)
-    impact = SEVERITY_TO_IMPACT.get(severity, 3)
+    # CORRECAO: converter severity para maiusculo antes de buscar
+    severity_upper = severity.upper()
+    likelihood = SEVERITY_TO_LIKELIHOOD.get(severity_upper, 3)
+    impact = SEVERITY_TO_IMPACT.get(severity_upper, 3)
     score = calculate_risk_score(likelihood, impact)
     risk_level = score_to_risk_level(score)
     compliance = build_compliance_mapping(rule_id, lgpd_article, iso_control)

@@ -1,13 +1,5 @@
 """
-Gerador de relatorio PDF formal de auditoria de conformidade.
-
-Produz um documento profissional com:
-- Capa
-- Resumo executivo
-- Matriz de riscos detalhada
-- Plano de remediacao
-- Cadeia de evidencias
-- Mapeamento LGPD/ISO 27000
+Gerador de relatório PDF formal de auditoria de conformidade LGPD / ISO 27000.
 """
 
 from pathlib import Path
@@ -16,7 +8,7 @@ from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
-from reportlab.lib.colors import HexColor, black, white
+from reportlab.lib.colors import HexColor, white
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.platypus import (
     SimpleDocTemplate,
@@ -25,418 +17,672 @@ from reportlab.platypus import (
     Table,
     TableStyle,
     PageBreak,
+    Flowable,
 )
-from reportlab.pdfgen import canvas
 
 from compliance_audit.models import AuditReport, RiskLevel
 
-# Cores corporativas
-COLOR_PRIMARY = HexColor("#1a365d")
-COLOR_CRITICAL = HexColor("#c0392b")
-COLOR_HIGH = HexColor("#e67e22")
-COLOR_MEDIUM = HexColor("#f1c40f")
-COLOR_LOW = HexColor("#27ae60")
-COLOR_NEGLIGIBLE = HexColor("#95a5a6")
-COLOR_LIGHT_BG = HexColor("#f8f9fa")
-COLOR_TABLE_HEADER = HexColor("#2c3e50")
+# ===== PALETA DE CORES =====
+COR_PRIMARIA = HexColor("#1a365d")
+COR_SECUNDARIA = HexColor("#2c5282")
+COR_DESTAQUE = HexColor("#2f855a")
+COR_CRITICO = HexColor("#c53030")
+COR_ALTO = HexColor("#dd6b20")
+COR_MEDIO = HexColor("#d69e2e")
+COR_BAIXO = HexColor("#38a169")
+COR_NEGLIG = HexColor("#718096")
+COR_FUNDO_CLARO = HexColor("#f7fafc")
+COR_LINHA_ALT = HexColor("#edf2f7")
+COR_DIVISORIA = HexColor("#e2e8f0")
+COR_TEXTO = HexColor("#2d3748")
+COR_TEXTO_CLARO = HexColor("#718096")
+COR_CONFIDENCIAL = HexColor("#c53030")
 
-def _risk_color(level: RiskLevel) -> HexColor:
-    """Retorna a cor correspondente ao nivel de risco."""
-    colors = {
-        RiskLevel.CRITICAL: COLOR_CRITICAL,
-        RiskLevel.HIGH: COLOR_HIGH,
-        RiskLevel.MEDIUM: COLOR_MEDIUM,
-        RiskLevel.LOW: COLOR_LOW,
-        RiskLevel.NEGLIGIBLE: COLOR_NEGLIGIBLE,
+# ===== CLASSES AUXILIARES =====
+
+class CabecalhoSecao(Flowable):
+    """Cabeçalho de seção com banda colorida e número."""
+
+    def __init__(self, largura, numero, titulo, cor=COR_PRIMARIA):
+        Flowable.__init__(self)
+        self.largura = largura
+        self.numero = numero
+        self.titulo = titulo
+        self.cor = cor
+        self.height = 0.85 * cm
+
+    def draw(self):
+        self.canv.setFillColor(self.cor)
+        self.canv.roundRect(0, 0, self.largura, self.height, 3, fill=1, stroke=0)
+        self.canv.setFillColor(white)
+        self.canv.circle(0.65 * cm, self.height / 2, 0.25 * cm, fill=1, stroke=0)
+        self.canv.setFillColor(self.cor)
+        self.canv.setFont("Helvetica-Bold", 10)
+        self.canv.drawCentredString(0.65 * cm, self.height / 2 - 3, str(self.numero))
+        self.canv.setFillColor(white)
+        self.canv.setFont("Helvetica-Bold", 11)
+        self.canv.drawString(1.2 * cm, self.height / 2 - 3.5, self.titulo)
+
+# ===== FUNÇÕES UTILITÁRIAS =====
+
+def _cor_risco(level: RiskLevel) -> HexColor:
+    cores = {
+        RiskLevel.CRITICAL: COR_CRITICO,
+        RiskLevel.HIGH: COR_ALTO,
+        RiskLevel.MEDIUM: COR_MEDIO,
+        RiskLevel.LOW: COR_BAIXO,
+        RiskLevel.NEGLIGIBLE: COR_NEGLIG,
     }
-    return colors.get(level, COLOR_NEGLIGIBLE)
+    return cores.get(level, COR_NEGLIG)
 
-def _risk_label(level: RiskLevel) -> str:
-    """Retorna o label em portugues para o nivel de risco."""
-    labels = {
-        RiskLevel.CRITICAL: "CRITICO",
-        RiskLevel.HIGH: "ALTO",
-        RiskLevel.MEDIUM: "MEDIO",
-        RiskLevel.LOW: "BAIXO",
-        RiskLevel.NEGLIGIBLE: "NEGLIGENCAVEL",
+def _rotulo_risco(level: RiskLevel) -> str:
+    rotulos = {
+        RiskLevel.CRITICAL: "Crítico",
+        RiskLevel.HIGH: "Alto",
+        RiskLevel.MEDIUM: "Médio",
+        RiskLevel.LOW: "Baixo",
+        RiskLevel.NEGLIGIBLE: "Negligenciável",
     }
-    return labels.get(level, "DESCONHECIDO")
+    return rotulos.get(level, "N/D")
 
-def _build_styles() -> dict:
-    """Cria os estilos de paragrafo do documento."""
-    styles = getSampleStyleSheet()
+def _estilos() -> dict:
+    base = getSampleStyleSheet()
 
-    custom = {
-        "title": ParagraphStyle(
-            "CustomTitle", parent=styles["Title"],
-            fontSize=24, textColor=COLOR_PRIMARY, spaceAfter=30,
-            alignment=TA_CENTER,
+    return {
+        "titulo": ParagraphStyle(
+            "Titulo", parent=base["Title"],
+            fontSize=20, textColor=white, spaceAfter=4,
+            alignment=TA_CENTER, fontName="Helvetica-Bold",
         ),
-        "subtitle": ParagraphStyle(
-            "CustomSubtitle", parent=styles["Normal"],
-            fontSize=14, textColor=COLOR_PRIMARY, spaceAfter=12,
+        "subtitulo": ParagraphStyle(
+            "Subtitulo", parent=base["Normal"],
+            fontSize=11, textColor=HexColor("#a0aec0"), spaceAfter=4,
             alignment=TA_CENTER,
         ),
         "h1": ParagraphStyle(
-            "CustomH1", parent=styles["Heading1"],
-            fontSize=16, textColor=COLOR_PRIMARY, spaceAfter=12, spaceBefore=20,
+            "H1", parent=base["Heading1"],
+            fontSize=14, textColor=COR_PRIMARIA, spaceAfter=10, spaceBefore=14,
+            fontName="Helvetica-Bold",
         ),
         "h2": ParagraphStyle(
-            "CustomH2", parent=styles["Heading2"],
-            fontSize=13, textColor=COLOR_TABLE_HEADER, spaceAfter=8, spaceBefore=12,
+            "H2", parent=base["Heading2"],
+            fontSize=11, textColor=COR_SECUNDARIA, spaceAfter=6, spaceBefore=10,
+            fontName="Helvetica-Bold",
         ),
-        "body": ParagraphStyle(
-            "CustomBody", parent=styles["Normal"],
-            fontSize=10, alignment=TA_JUSTIFY, spaceAfter=8, leading=14,
+        "corpo": ParagraphStyle(
+            "Corpo", parent=base["Normal"],
+            fontSize=10, alignment=TA_JUSTIFY, spaceAfter=6, leading=14,
+            textColor=COR_TEXTO,
         ),
-        "cell": ParagraphStyle(
-            "CustomCell", parent=styles["Normal"],
-            fontSize=8, leading=10,
+        "corpo_pequeno": ParagraphStyle(
+            "CorpoPequeno", parent=base["Normal"],
+            fontSize=9, alignment=TA_JUSTIFY, spaceAfter=4, leading=12,
+            textColor=COR_TEXTO,
         ),
-        "cell_bold": ParagraphStyle(
-            "CustomCellBold", parent=styles["Normal"],
-            fontSize=8, leading=10, fontName="Helvetica-Bold",
+        "celula": ParagraphStyle(
+            "Celula", parent=base["Normal"],
+            fontSize=7.5, leading=10, textColor=COR_TEXTO,
+            alignment=TA_LEFT,
         ),
-        "footer": ParagraphStyle(
-            "CustomFooter", parent=styles["Normal"],
-            fontSize=8, textColor=COLOR_NEGLIGIBLE, alignment=TA_CENTER,
+        "celula_centro": ParagraphStyle(
+            "CelulaCentro", parent=base["Normal"],
+            fontSize=7.5, leading=10, textColor=COR_TEXTO,
+            alignment=TA_CENTER,
+        ),
+        "celula_negrito": ParagraphStyle(
+            "CelulaNegrito", parent=base["Normal"],
+            fontSize=7.5, leading=10, fontName="Helvetica-Bold", textColor=COR_TEXTO,
+            alignment=TA_LEFT,
+        ),
+        "celula_negrito_centro": ParagraphStyle(
+            "CelulaNegritoCentro", parent=base["Normal"],
+            fontSize=7.5, leading=10, fontName="Helvetica-Bold", textColor=COR_TEXTO,
+            alignment=TA_CENTER,
+        ),
+        "celula_branco": ParagraphStyle(
+            "CelulaBranco", parent=base["Normal"],
+            fontSize=7, leading=9, fontName="Helvetica-Bold", textColor=white,
+            alignment=TA_CENTER,
+            splitLongWords=0,
+        ),
+        "rotulo_capa": ParagraphStyle(
+            "RotuloCapa", parent=base["Normal"],
+            fontSize=9, textColor=HexColor("#a0aec0"), fontName="Helvetica",
+        ),
+        "valor_capa": ParagraphStyle(
+            "ValorCapa", parent=base["Normal"],
+            fontSize=10, textColor=white, fontName="Helvetica-Bold",
+        ),
+        "kpi_valor": ParagraphStyle(
+            "KPIValor", parent=base["Normal"],
+            fontSize=18, textColor=white, fontName="Helvetica-Bold",
+            alignment=TA_CENTER,
+        ),
+        "kpi_rotulo": ParagraphStyle(
+            "KPIRotulo", parent=base["Normal"],
+            fontSize=7.5, textColor=HexColor("#a0aec0"), alignment=TA_CENTER,
+        ),
+        "rodape": ParagraphStyle(
+            "Rodape", parent=base["Normal"],
+            fontSize=7, textColor=COR_TEXTO_CLARO, alignment=TA_CENTER,
+        ),
+        "confidencial": ParagraphStyle(
+            "Confidencial", parent=base["Normal"],
+            fontSize=7.5, textColor=COR_CONFIDENCIAL, alignment=TA_CENTER,
+            fontName="Helvetica-Bold",
+        ),
+        "resumo_texto": ParagraphStyle(
+            "ResumoTexto", parent=base["Normal"],
+            fontSize=9.5, alignment=TA_JUSTIFY, leading=14, textColor=COR_TEXTO,
+            spaceAfter=6,
+        ),
+        "resumo_destaque": ParagraphStyle(
+            "ResumoDestaque", parent=base["Normal"],
+            fontSize=9, fontName="Helvetica-Bold", textColor=COR_CRITICO,
+            spaceAfter=4,
         ),
     }
-    return custom
 
-def _build_cover(report: AuditReport, styles: dict) -> list:
-    """Constroi a capa do relatorio."""
-    elements = []
-    elements.append(Spacer(1, 4 * cm))
-    elements.append(Paragraph("RELATORIO DE AUDITORIA", styles["title"]))
-    elements.append(Paragraph("CONFORMIDADE LGPD / ISO 27000", styles["subtitle"]))
-    elements.append(Spacer(1, 2 * cm))
+# ===== ESTILO BASE PARA TODAS AS TABELAS =====
 
-    cover_data = [
-        ["Cliente:", report.client_name],
-        ["Escopo:", report.audit_scope],
-        ["Data:", report.audit_date.strftime("%d/%m/%Y")],
-        ["Auditor:", report.auditor],
-        ["ID do Relatorio:", report.report_id],
-        ["Total de Achados:", str(report.total_findings)],
-        ["Criticos:", str(report.critical_count)],
-        ["Altos:", str(report.high_count)],
-        ["Medios:", str(report.medium_count)],
-        ["Baixos:", str(report.low_count)],
+def _estilo_tabela_base(num_linhas: int, cor_header: HexColor = COR_PRIMARIA) -> list:
+    """Retorna comandos de estilo base para todas as tabelas."""
+    cmds = [
+        ("BACKGROUND", (0, 0), (-1, 0), COR_PRIMARIA),
+        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+        ("VALIGN", (0, 0), (-1, 0), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        ("VALIGN", (0, 1), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 1), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("LINEBELOW", (0, 0), (-1, 0), 1, cor_header),
+        ("INNERGRID", (0, 1), (-1, -1), 0.25, COR_DIVISORIA),
+        ("BOX", (0, 0), (-1, -1), 0.5, COR_DIVISORIA),
+    ]
+    for i in range(1, num_linhas):
+        if i % 2 == 0:
+            cmds.append(("BACKGROUND", (0, i), (-1, i), COR_LINHA_ALT))
+    return cmds
+
+# ===== SEÇÕES DO RELATÓRIO =====
+
+def _construir_capa(report: AuditReport, estilos: dict, largura: float) -> list:
+    elementos = []
+    elementos.append(Spacer(1, 2.5 * cm))
+
+    banda = Table([[
+        Paragraph("Relatório de Auditoria", estilos["titulo"]),
+    ]], colWidths=[largura])
+    banda.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), COR_PRIMARIA),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 25),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 15),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 15),
+    ]))
+    elementos.append(banda)
+
+    sub = Table([[
+        Paragraph("Conformidade LGPD / ISO 27000", estilos["subtitulo"]),
+    ]], colWidths=[largura])
+    sub.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), COR_SECUNDARIA),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    elementos.append(sub)
+
+    elementos.append(Spacer(1, 1.5 * cm))
+
+    kpi_largura = (largura - 0.6 * cm) / 4
+    kpi_dados = [[
+        Table([[Paragraph(str(report.total_findings), estilos["kpi_valor"])]],
+              colWidths=[kpi_largura], rowHeights=[1.1 * cm]),
+        Table([[Paragraph(str(report.critical_count), estilos["kpi_valor"])]],
+              colWidths=[kpi_largura], rowHeights=[1.1 * cm]),
+        Table([[Paragraph(str(report.high_count), estilos["kpi_valor"])]],
+              colWidths=[kpi_largura], rowHeights=[1.1 * cm]),
+        Table([[Paragraph(str(report.medium_count + report.low_count), estilos["kpi_valor"])]],
+              colWidths=[kpi_largura], rowHeights=[1.1 * cm]),
+    ]]
+
+    kpi_tabela = Table(kpi_dados, colWidths=[kpi_largura + 0.2 * cm] * 4)
+    kpi_tabela.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), COR_SECUNDARIA),
+        ("BACKGROUND", (1, 0), (1, 0), COR_CRITICO),
+        ("BACKGROUND", (2, 0), (2, 0), COR_ALTO),
+        ("BACKGROUND", (3, 0), (3, 0), COR_MEDIO),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    elementos.append(kpi_tabela)
+
+    rotulos = [[
+        Paragraph("Total de achados", estilos["kpi_rotulo"]),
+        Paragraph("Críticos", estilos["kpi_rotulo"]),
+        Paragraph("Altos", estilos["kpi_rotulo"]),
+        Paragraph("Médios e baixos", estilos["kpi_rotulo"]),
+    ]]
+    rotulo_tabela = Table(rotulos, colWidths=[kpi_largura + 0.2 * cm] * 4)
+    rotulo_tabela.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), COR_PRIMARIA),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elementos.append(rotulo_tabela)
+
+    elementos.append(Spacer(1, 2 * cm))
+
+    meses = {
+        1: "janeiro", 2: "fevereiro", 3: "março", 4: "abril",
+        5: "maio", 6: "junho", 7: "julho", 8: "agosto",
+        9: "setembro", 10: "outubro", 11: "novembro", 12: "dezembro",
+    }
+    data_extenso = report.audit_date.strftime(f"%d de {meses[report.audit_date.month]} de %Y")
+
+    dados_cliente = [
+        [Paragraph("Cliente", estilos["rotulo_capa"]), Paragraph(report.client_name, estilos["valor_capa"])],
+        [Paragraph("Escopo", estilos["rotulo_capa"]), Paragraph(report.audit_scope, estilos["valor_capa"])],
+        [Paragraph("Auditor", estilos["rotulo_capa"]), Paragraph(report.auditor, estilos["valor_capa"])],
+        [Paragraph("Data", estilos["rotulo_capa"]), Paragraph(data_extenso, estilos["valor_capa"])],
+        [Paragraph("Identificação", estilos["rotulo_capa"]), Paragraph(report.report_id, estilos["valor_capa"])],
     ]
 
-    cover_table = Table(cover_data, colWidths=[5 * cm, 10 * cm])
-    cover_table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 11),
-        ("TEXTCOLOR", (0, 0), (0, -1), COLOR_PRIMARY),
-        ("TEXTCOLOR", (1, 0), (1, -1), black),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("LINEBELOW", (0, 0), (-1, -1), 0.5, COLOR_LIGHT_BG),
+    tabela_cliente = Table(dados_cliente, colWidths=[3.5 * cm, largura - 3.5 * cm])
+    tabela_cliente.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), COR_PRIMARIA),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.5, HexColor("#2a4a6b")),
     ]))
-    elements.append(cover_table)
-    elements.append(PageBreak())
-    return elements
+    elementos.append(tabela_cliente)
 
-def _build_executive_summary(report: AuditReport, styles: dict) -> list:
-    """Constroi o resumo executivo."""
-    elements = []
-    elements.append(Paragraph("1. RESUMO EXECUTIVO", styles["h1"]))
+    elementos.append(Spacer(1, 2 * cm))
 
-    summary_lines = report.executive_summary.split("\n")
-    for line in summary_lines:
-        line = line.strip()
-        if line:
-            elements.append(Paragraph(line, styles["body"]))
+    aviso = Table([[
+        Paragraph("Documento confidencial — uso restrito ao destinatário", estilos["confidencial"]),
+    ]], colWidths=[largura])
+    aviso.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#fff5f5")),
+        ("BOX", (0, 0), (-1, -1), 1, COR_CONFIDENCIAL),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    elementos.append(aviso)
 
-    elements.append(Spacer(1, 1 * cm))
-    elements.append(PageBreak())
-    return elements
+    elementos.append(PageBreak())
+    return elementos
 
-def _build_risk_matrix(report: AuditReport, styles: dict) -> list:
-    """Constroi a tabela detalhada da matriz de riscos."""
-    elements = []
-    elements.append(Paragraph("2. MATRIZ DE RISCOS", styles["h1"]))
-    elements.append(Paragraph(
-        "A seguinte matriz apresenta todos os achados de nao conformidade "
-        "identificados durante a auditoria, ordenados por score de risco "
-        "(likelihood x impact, metodologia ISO 27005).",
-        styles["body"]
+def _construir_resumo(report: AuditReport, estilos: dict, largura: float) -> list:
+    """Resumo executivo sem menção à automação."""
+    elementos = []
+    elementos.append(CabecalhoSecao(largura, 1, "Resumo executivo"))
+    elementos.append(Spacer(1, 0.5 * cm))
+
+    col_largura = largura / 5
+    stats = [[
+        Paragraph(f"<b>{report.total_findings}</b><br/><font size=7>total</font>",
+                  ParagraphStyle("s1", parent=estilos["kpi_valor"], fontSize=14, textColor=COR_PRIMARIA)),
+        Paragraph(f"<b>{report.critical_count}</b><br/><font size=7>críticos</font>",
+                  ParagraphStyle("s2", parent=estilos["kpi_valor"], fontSize=14, textColor=COR_CRITICO)),
+        Paragraph(f"<b>{report.high_count}</b><br/><font size=7>altos</font>",
+                  ParagraphStyle("s3", parent=estilos["kpi_valor"], fontSize=14, textColor=COR_ALTO)),
+        Paragraph(f"<b>{report.medium_count}</b><br/><font size=7>médios</font>",
+                  ParagraphStyle("s4", parent=estilos["kpi_valor"], fontSize=14, textColor=COR_MEDIO)),
+        Paragraph(f"<b>{report.low_count}</b><br/><font size=7>baixos</font>",
+                  ParagraphStyle("s5", parent=estilos["kpi_valor"], fontSize=14, textColor=COR_BAIXO)),
+    ]]
+
+    stats_tabela = Table(stats, colWidths=[col_largura] * 5)
+    stats_tabela.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), COR_FUNDO_CLARO),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("BOX", (0, 0), (-1, -1), 0.5, COR_DIVISORIA),
+    ]))
+    elementos.append(stats_tabela)
+    elementos.append(Spacer(1, 0.6 * cm))
+
+    total = report.total_findings
+    criticos = report.critical_count
+    altos = report.high_count
+    medios = report.medium_count
+    baixos = report.low_count
+
+    if report.risk_items:
+        score_medio = sum(r.risk_score for r in report.risk_items) / len(report.risk_items)
+        score_str = f"{score_medio:.1f}".replace(".", ",")
+    else:
+        score_str = "0,0"
+
+    if criticos > 0:
+        nivel_geral = "elevado"
+        cor_nivel = COR_CRITICO
+        acao = (
+            "Recomenda-se tratamento imediato dos achados críticos, com priorização "
+            "máxima de correção. A exposição de credenciais e dados pessoais sensíveis "
+            "no código-fonte configura risco potencial de incidente de segurança "
+            "notificável conforme o Art. 48 da LGPD."
+        )
+    elif altos > 0:
+        nivel_geral = "moderado a alto"
+        cor_nivel = COR_ALTO
+        acao = (
+            "Recomenda-se tratamento dos achados em até 72 horas, com inclusão "
+            "no plano de tratamento de riscos da organização."
+        )
+    else:
+        nivel_geral = "baixo"
+        cor_nivel = COR_BAIXO
+        acao = (
+            "Os achados identificados são de baixo impacto. Recomenda-se "
+            "monitoramento e programação de correções de forma planejada."
+        )
+
+    top3 = sorted(report.risk_items, key=lambda r: r.risk_score, reverse=True)[:3]
+    top3_nomes = [item.rule_id for item in top3] if top3 else []
+
+    # Texto do resumo — SEM menção à auditoria automática
+    elementos.append(Paragraph(
+        f"A análise do código-fonte do cliente <b>{report.client_name}</b> "
+        f"identificou <b>{total} achados</b> de não conformidade relacionados à "
+        f"exposição de dados sensíveis, credenciais e informações pessoais, "
+        f"distribuídos em diferentes níveis de risco.",
+        estilos["resumo_texto"]
     ))
-    elements.append(Spacer(1, 0.5 * cm))
+
+    elementos.append(Paragraph(
+        f"Nível de risco geral: <font color='{cor_nivel.hexval()}'><b>{nivel_geral.upper()}</b></font>",
+        estilos["resumo_destaque"]
+    ))
+
+    elementos.append(Paragraph(
+        f"Distribuição por severidade: {criticos} crítico(s), {altos} alto(s), "
+        f"{medios} médio(s) e {baixos} baixo(s). A pontuação média de risco "
+        f"calculada foi <b>{score_str}/25</b>, utilizando matriz 5×5 "
+        f"(probabilidade × impacto) conforme metodologia ISO 27005.",
+        estilos["resumo_texto"]
+    ))
+
+    if top3_nomes:
+        elementos.append(Paragraph(
+            f"Principais categorias de risco detectadas: "
+            f"<b>{', '.join(top3_nomes)}</b>.",
+            estilos["resumo_texto"]
+        ))
+
+    elementos.append(Paragraph(acao, estilos["resumo_texto"]))
+
+    elementos.append(Paragraph(
+        "O relatório completo inclui a matriz de riscos detalhada, o plano de correção "
+        "priorizado, a cadeia de evidências e o mapeamento para os artigos da LGPD "
+        "(Lei nº 13.709/2018) e controles da família ISO/IEC 27000.",
+        estilos["resumo_texto"]
+    ))
+
+    elementos.append(Spacer(1, 0.8 * cm))
+    elementos.append(PageBreak())
+    return elementos
+
+def _construir_matriz(report: AuditReport, estilos: dict, largura: float) -> list:
+    elementos = []
+    elementos.append(CabecalhoSecao(largura, 2, "Matriz de riscos", COR_CRITICO))
+    elementos.append(Spacer(1, 0.3 * cm))
+    elementos.append(Paragraph(
+        "Os achados estão ordenados por pontuação de risco (probabilidade × impacto), "
+        "conforme metodologia ISO 27005. A pontuação máxima é 25 (5×5).",
+        estilos["corpo_pequeno"]
+    ))
+    elementos.append(Spacer(1, 0.4 * cm))
 
     if not report.risk_items:
-        elements.append(Paragraph(
-            "Nenhum achado de nao conformidade foi identificado.",
-            styles["body"]
-        ))
-        return elements
+        elementos.append(Paragraph("Nenhum achado de não conformidade identificado.", estilos["corpo"]))
+        return elementos
 
-    header = [
-        Paragraph("ID", styles["cell_bold"]),
-        Paragraph("Regra", styles["cell_bold"]),
-        Paragraph("Arquivo:Linha", styles["cell_bold"]),
-        Paragraph("Score", styles["cell_bold"]),
-        Paragraph("Nivel", styles["cell_bold"]),
-        Paragraph("LGPD", styles["cell_bold"]),
-        Paragraph("ISO 27000", styles["cell_bold"]),
-        Paragraph("Recomendacao", styles["cell_bold"]),
+    cabecalho = [
+        Paragraph("ID", estilos["celula_branco"]),
+        Paragraph("Regra", estilos["celula_branco"]),
+        Paragraph("Arquivo:linha", estilos["celula_branco"]),
+        Paragraph("Pontuação", estilos["celula_branco"]),
+        Paragraph("Nível", estilos["celula_branco"]),
+        Paragraph("LGPD", estilos["celula_branco"]),
+        Paragraph("ISO", estilos["celula_branco"]),
+        Paragraph("Recomendação", estilos["celula_branco"]),
     ]
 
-    data = [header]
-    row_colors = []
-
+    dados = [cabecalho]
     for item in sorted(report.risk_items, key=lambda r: r.risk_score, reverse=True):
-        row = [
-            Paragraph(item.finding_id, styles["cell"]),
-            Paragraph(item.rule_id, styles["cell"]),
-            Paragraph(f"{Path(item.file_path).name}:{item.line_number}", styles["cell"]),
-            Paragraph(f"{item.risk_score}/25", styles["cell"]),
-            Paragraph(_risk_label(item.risk_level), styles["cell"]),
-            Paragraph(item.compliance.lgpd_article, styles["cell"]),
-            Paragraph(item.compliance.iso_control, styles["cell"]),
-            Paragraph(item.recommendation, styles["cell"]),
-        ]
-        data.append(row)
-        row_colors.append(_risk_color(item.risk_level))
+        dados.append([
+            Paragraph(item.finding_id, estilos["celula_centro"]),
+            Paragraph(item.rule_id, estilos["celula_negrito_centro"]),
+            Paragraph(f"{Path(item.file_path).name}:{item.line_number}", estilos["celula_centro"]),
+            Paragraph(f"{item.risk_score}/25", estilos["celula_negrito_centro"]),
+            Paragraph(_rotulo_risco(item.risk_level), estilos["celula_negrito_centro"]),
+            Paragraph(item.compliance.lgpd_article, estilos["celula_centro"]),
+            Paragraph(item.compliance.iso_control, estilos["celula_centro"]),
+            Paragraph(item.recommendation, estilos["celula"]),
+        ])
 
-    col_widths = [1.5*cm, 2*cm, 2.5*cm, 1.2*cm, 1.5*cm, 1.2*cm, 1.2*cm, 4*cm]
-    table = Table(data, colWidths=col_widths, repeatRows=1)
+    # Larguras: 1.2+1.6+2.0+1.8+1.4+1.2+1.2+6.6 = 17.0
+    # "Pontuação" agora tem 1.8cm (antes 1.3cm) — cabe sem quebra
+    col_larguras = [1.2*cm, 1.6*cm, 2.0*cm, 1.8*cm, 1.4*cm, 1.2*cm, 1.2*cm, 6.6*cm]
+    tabela = Table(dados, colWidths=col_larguras, repeatRows=1)
 
-    style_cmds = [
-        ("BACKGROUND", (0, 0), (-1, 0), COLOR_TABLE_HEADER),
-        ("TEXTCOLOR", (0, 0), (-1, 0), white),
-        ("GRID", (0, 0), (-1, -1), 0.5, COLOR_NEGLIGIBLE),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LEFTPADDING", (0, 0), (-1, -1), 3),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-    ]
+    cmds = _estilo_tabela_base(len(dados), COR_CRITICO)
 
-    for i, color in enumerate(row_colors):
-        row_idx = i + 1
-        style_cmds.append(("TEXTCOLOR", (4, row_idx), (4, row_idx), color))
-        style_cmds.append(("FONTNAME", (4, row_idx), (4, row_idx), "Helvetica-Bold"))
+    for i, item in enumerate(sorted(report.risk_items, key=lambda r: r.risk_score, reverse=True)):
+        linha = i + 1
+        cmds.append(("TEXTCOLOR", (4, linha), (4, linha), _cor_risco(item.risk_level)))
 
-    table.setStyle(TableStyle(style_cmds))
-    elements.append(table)
-    elements.append(Spacer(1, 1 * cm))
-    elements.append(PageBreak())
-    return elements
+    tabela.setStyle(TableStyle(cmds))
+    elementos.append(tabela)
+    elementos.append(Spacer(1, 0.8 * cm))
+    elementos.append(PageBreak())
+    return elementos
 
-def _build_remediation_plan(report: AuditReport, styles: dict) -> list:
-    """Constroi o plano de remediacao."""
-    elements = []
-    elements.append(Paragraph("3. PLANO DE REMEDIACAO", styles["h1"]))
-    elements.append(Paragraph(
-        "O seguinte plano de remediacao prioriza as acoes conforme o score de risco. "
-        "Acoes de prioridade 5 (urgente) devem ser executadas imediatamente.",
-        styles["body"]
+def _construir_remediacao(report: AuditReport, estilos: dict, largura: float) -> list:
+    elementos = []
+    elementos.append(CabecalhoSecao(largura, 3, "Plano de correção", COR_ALTO))
+    elementos.append(Spacer(1, 0.3 * cm))
+    elementos.append(Paragraph(
+        "Ações priorizadas por pontuação de risco. Prioridade 5 exige ação imediata; "
+        "prioridade 1 pode ser programada.",
+        estilos["corpo_pequeno"]
     ))
-    elements.append(Spacer(1, 0.5 * cm))
+    elementos.append(Spacer(1, 0.4 * cm))
 
     if not report.remediation_plan:
-        elements.append(Paragraph(
-            "Nenhuma acao de remediacao necessaria.",
-            styles["body"]
-        ))
-        return elements
+        elementos.append(Paragraph("Nenhuma ação de correção necessária.", estilos["corpo"]))
+        return elementos
 
-    header = [
-        Paragraph("ID Acao", styles["cell_bold"]),
-        Paragraph("Finding", styles["cell_bold"]),
-        Paragraph("Titulo", styles["cell_bold"]),
-        Paragraph("Prioridade", styles["cell_bold"]),
-        Paragraph("Esforco Est.", styles["cell_bold"]),
-        Paragraph("Status", styles["cell_bold"]),
-        Paragraph("Descricao", styles["cell_bold"]),
+    cabecalho = [
+        Paragraph("Ação", estilos["celula_branco"]),
+        Paragraph("Achado", estilos["celula_branco"]),
+        Paragraph("Título", estilos["celula_branco"]),
+        Paragraph("Prioridade", estilos["celula_branco"]),
+        Paragraph("Esforço", estilos["celula_branco"]),
+        Paragraph("Status", estilos["celula_branco"]),
+        Paragraph("Descrição", estilos["celula_branco"]),
     ]
 
-    data = [header]
+    dados = [cabecalho]
     for action in report.remediation_plan:
-        row = [
-            Paragraph(action.action_id, styles["cell"]),
-            Paragraph(action.finding_id, styles["cell"]),
-            Paragraph(action.title, styles["cell"]),
-            Paragraph(f"P{action.priority}", styles["cell"]),
-            Paragraph(action.estimated_effort, styles["cell"]),
-            Paragraph(action.status.value, styles["cell"]),
-            Paragraph(action.description, styles["cell"]),
-        ]
-        data.append(row)
+        dados.append([
+            Paragraph(action.action_id, estilos["celula_negrito_centro"]),
+            Paragraph(action.finding_id, estilos["celula_centro"]),
+            Paragraph(action.title, estilos["celula"]),
+            Paragraph(f"P{action.priority}", estilos["celula_negrito_centro"]),
+            Paragraph(action.estimated_effort, estilos["celula_centro"]),
+            Paragraph(action.status.value, estilos["celula_centro"]),
+            Paragraph(action.description, estilos["celula"]),
+        ])
 
-    col_widths = [1.5*cm, 1.5*cm, 3*cm, 1.2*cm, 1.5*cm, 1.5*cm, 4.5*cm]
-    table = Table(data, colWidths=col_widths, repeatRows=1)
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), COLOR_TABLE_HEADER),
-        ("TEXTCOLOR", (0, 0), (-1, 0), white),
-        ("GRID", (0, 0), (-1, -1), 0.5, COLOR_NEGLIGIBLE),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LEFTPADDING", (0, 0), (-1, -1), 3),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-    ]))
-    elements.append(table)
-    elements.append(Spacer(1, 1 * cm))
-    elements.append(PageBreak())
-    return elements
+    # Larguras: 1.2+1.2+2.6+1.8+1.4+1.2+7.6 = 17.0
+    # "Prioridade" agora tem 1.8cm (antes 1.3cm) — cabe sem quebra
+    col_larguras = [1.2*cm, 1.2*cm, 2.6*cm, 1.8*cm, 1.4*cm, 1.2*cm, 7.6*cm]
+    tabela = Table(dados, colWidths=col_larguras, repeatRows=1)
 
-def _build_evidence_chain(report: AuditReport, styles: dict) -> list:
-    """Constroi a cadeia de evidencias."""
-    elements = []
-    elements.append(Paragraph("4. CADEIA DE EVIDENCIAS", styles["h1"]))
-    elements.append(Paragraph(
-        "As evidencias abaixo foram coletadas automaticamente durante a auditoria "
-        "e podem ser usadas para fins de comprovacao em auditorias externas.",
-        styles["body"]
+    cmds = _estilo_tabela_base(len(dados), COR_ALTO)
+
+    tabela.setStyle(TableStyle(cmds))
+    elementos.append(tabela)
+    elementos.append(Spacer(1, 0.8 * cm))
+    elementos.append(PageBreak())
+    return elementos
+
+def _construir_evidencias(report: AuditReport, estilos: dict, largura: float) -> list:
+    elementos = []
+    elementos.append(CabecalhoSecao(largura, 4, "Cadeia de evidências", COR_SECUNDARIA))
+    elementos.append(Spacer(1, 0.3 * cm))
+    elementos.append(Paragraph(
+        "Evidências coletadas durante a auditoria. "
+        "Podem ser utilizadas em auditorias externas ou processos de comprovação.",
+        estilos["corpo_pequeno"]
     ))
-    elements.append(Spacer(1, 0.5 * cm))
+    elementos.append(Spacer(1, 0.4 * cm))
 
     if not report.evidence_chain:
-        elements.append(Paragraph(
-            "Nenhuma evidencia coletada.",
-            styles["body"]
-        ))
-        return elements
+        elementos.append(Paragraph("Nenhuma evidência coletada.", estilos["corpo"]))
+        return elementos
 
-    header = [
-        Paragraph("ID Evid.", styles["cell_bold"]),
-        Paragraph("Finding", styles["cell_bold"]),
-        Paragraph("Tipo", styles["cell_bold"]),
-        Paragraph("Coletado em", styles["cell_bold"]),
-        Paragraph("Local", styles["cell_bold"]),
+    cabecalho = [
+        Paragraph("ID", estilos["celula_branco"]),
+        Paragraph("Achado", estilos["celula_branco"]),
+        Paragraph("Tipo", estilos["celula_branco"]),
+        Paragraph("Coletado em", estilos["celula_branco"]),
+        Paragraph("Localização", estilos["celula_branco"]),
     ]
 
-    data = [header]
+    dados = [cabecalho]
     for ev in report.evidence_chain:
-        row = [
-            Paragraph(ev.evidence_id, styles["cell"]),
-            Paragraph(ev.finding_id, styles["cell"]),
-            Paragraph(ev.evidence_type.value, styles["cell"]),
-            Paragraph(ev.collected_at.strftime("%d/%m/%Y %H:%M"), styles["cell"]),
-            Paragraph(ev.location, styles["cell"]),
-        ]
-        data.append(row)
+        dados.append([
+            Paragraph(ev.evidence_id, estilos["celula_negrito_centro"]),
+            Paragraph(ev.finding_id, estilos["celula_centro"]),
+            Paragraph(ev.evidence_type.value, estilos["celula_centro"]),
+            Paragraph(ev.collected_at.strftime("%d/%m/%Y %H:%M"), estilos["celula_centro"]),
+            Paragraph(ev.location, estilos["celula"]),
+        ])
 
-    col_widths = [1.5*cm, 1.5*cm, 2*cm, 2.5*cm, 5*cm]
-    table = Table(data, colWidths=col_widths, repeatRows=1)
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), COLOR_TABLE_HEADER),
-        ("TEXTCOLOR", (0, 0), (-1, 0), white),
-        ("GRID", (0, 0), (-1, -1), 0.5, COLOR_NEGLIGIBLE),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LEFTPADDING", (0, 0), (-1, -1), 3),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-    ]))
-    elements.append(table)
-    elements.append(PageBreak())
-    return elements
+    # Larguras: 1.5+1.5+2.5+2.5+9.0 = 17.0
+    col_larguras = [1.5*cm, 1.5*cm, 2.5*cm, 2.5*cm, 9.0*cm]
+    tabela = Table(dados, colWidths=col_larguras, repeatRows=1)
 
-def _build_legal_mapping(report: AuditReport, styles: dict) -> list:
-    """Constroi a secao de mapeamento legal e normativo."""
-    elements = []
-    elements.append(Paragraph("5. MAPEAMENTO LEGAL E NORMATIVO", styles["h1"]))
-    elements.append(Paragraph(
-        "Esta secao detalha o embasamento juridico (LGPD) e normativo (ISO 27000) "
-        "para cada achado identificado.",
-        styles["body"]
+    cmds = _estilo_tabela_base(len(dados), COR_SECUNDARIA)
+
+    tabela.setStyle(TableStyle(cmds))
+    elementos.append(tabela)
+    elementos.append(PageBreak())
+    return elementos
+
+def _construir_mapeamento(report: AuditReport, estilos: dict, largura: float) -> list:
+    elementos = []
+    elementos.append(CabecalhoSecao(largura, 5, "Mapeamento legal e normativo", COR_DESTAQUE))
+    elementos.append(Spacer(1, 0.3 * cm))
+    elementos.append(Paragraph(
+        "Embasamento jurídico (LGPD) e normativo (ISO 27000) aplicável aos achados.",
+        estilos["corpo_pequeno"]
     ))
-    elements.append(Spacer(1, 0.5 * cm))
+    elementos.append(Spacer(1, 0.5 * cm))
 
-    seen_articles = set()
-    seen_controls = set()
+    artigos_vistos = set()
+    controles_vistos = set()
 
-    elements.append(Paragraph("5.1 Artigos da LGPD", styles["h2"]))
+    # LGPD
+    elementos.append(Paragraph("Lei nº 13.709/2018 — LGPD", estilos["h2"]))
 
-    lgpd_data = [[
-        Paragraph("Artigo", styles["cell_bold"]),
-        Paragraph("Texto", styles["cell_bold"]),
-        Paragraph("Implicacao", styles["cell_bold"]),
+    dados_lgpd = [[
+        Paragraph("Artigo", estilos["celula_branco"]),
+        Paragraph("Resumo", estilos["celula_branco"]),
+        Paragraph("Implicação prática", estilos["celula_branco"]),
     ]]
 
     for item in report.risk_items:
         art = item.compliance.lgpd_article
-        if art not in seen_articles:
-            seen_articles.add(art)
-            lgpd_data.append([
-                Paragraph(art, styles["cell"]),
-                Paragraph(item.compliance.lgpd_text, styles["cell"]),
-                Paragraph(item.compliance.lgpd_implication, styles["cell"]),
+        if art not in artigos_vistos:
+            artigos_vistos.add(art)
+            dados_lgpd.append([
+                Paragraph(art, estilos["celula_negrito_centro"]),
+                Paragraph(item.compliance.lgpd_text, estilos["celula"]),
+                Paragraph(item.compliance.lgpd_implication, estilos["celula"]),
             ])
 
-    lgpd_table = Table(lgpd_data, colWidths=[2*cm, 5*cm, 6*cm], repeatRows=1)
-    lgpd_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), COLOR_TABLE_HEADER),
-        ("TEXTCOLOR", (0, 0), (-1, 0), white),
-        ("GRID", (0, 0), (-1, -1), 0.5, COLOR_NEGLIGIBLE),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    elements.append(lgpd_table)
-    elements.append(Spacer(1, 0.8 * cm))
+    # Larguras: 1.8+5.5+9.7 = 17.0
+    tab_lgpd = Table(dados_lgpd, colWidths=[1.8*cm, 5.5*cm, 9.7*cm], repeatRows=1)
+    tab_lgpd.setStyle(TableStyle(_estilo_tabela_base(len(dados_lgpd), COR_PRIMARIA)))
+    elementos.append(tab_lgpd)
+    elementos.append(Spacer(1, 0.6 * cm))
 
-    elements.append(Paragraph("5.2 Controles ISO 27000", styles["h2"]))
+    # ISO
+    elementos.append(Paragraph("Família ISO/IEC 27000", estilos["h2"]))
 
-    iso_data = [[
-        Paragraph("Controle", styles["cell_bold"]),
-        Paragraph("Norma", styles["cell_bold"]),
-        Paragraph("Familia", styles["cell_bold"]),
-        Paragraph("Descricao", styles["cell_bold"]),
+    dados_iso = [[
+        Paragraph("Controle", estilos["celula_branco"]),
+        Paragraph("Norma", estilos["celula_branco"]),
+        Paragraph("Família", estilos["celula_branco"]),
+        Paragraph("Descrição", estilos["celula_branco"]),
     ]]
 
     for item in report.risk_items:
         ctrl = item.compliance.iso_control
-        if ctrl not in seen_controls:
-            seen_controls.add(ctrl)
-            iso_data.append([
-                Paragraph(ctrl, styles["cell"]),
-                Paragraph(item.compliance.iso_standard, styles["cell"]),
-                Paragraph(item.compliance.iso_family, styles["cell"]),
-                Paragraph(item.compliance.iso_description, styles["cell"]),
+        if ctrl not in controles_vistos:
+            controles_vistos.add(ctrl)
+            dados_iso.append([
+                Paragraph(ctrl, estilos["celula_negrito_centro"]),
+                Paragraph(item.compliance.iso_standard, estilos["celula_centro"]),
+                Paragraph(item.compliance.iso_family, estilos["celula"]),
+                Paragraph(item.compliance.iso_description, estilos["celula"]),
             ])
 
-    iso_table = Table(iso_data, colWidths=[1.5*cm, 2.5*cm, 3*cm, 6*cm], repeatRows=1)
-    iso_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), COLOR_TABLE_HEADER),
-        ("TEXTCOLOR", (0, 0), (-1, 0), white),
-        ("GRID", (0, 0), (-1, -1), 0.5, COLOR_NEGLIGIBLE),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    elements.append(iso_table)
-    return elements
+    # Larguras: 1.8+2.5+3.0+9.7 = 17.0
+    tab_iso = Table(dados_iso, colWidths=[1.8*cm, 2.5*cm, 3.0*cm, 9.7*cm], repeatRows=1)
+    tab_iso.setStyle(TableStyle(_estilo_tabela_base(len(dados_iso), COR_DESTAQUE)))
+    elementos.append(tab_iso)
 
-def _footer(canvas_obj: canvas.Canvas, doc: SimpleDocTemplate) -> None:
-    """Adiciona rodape numerado em cada pagina."""
+    return elementos
+
+# ===== RODAPÉ =====
+
+def _rodape(canvas_obj, doc):
     canvas_obj.saveState()
-    canvas_obj.setFont("Helvetica", 8)
-    canvas_obj.setFillColor(COLOR_NEGLIGIBLE)
-    page_text = f"Relatorio de Auditoria — Pagina {doc.page}"
-    canvas_obj.drawCentredString(A4[0] / 2, 1 * cm, page_text)
-    canvas_obj.drawRightString(
-        A4[0] - 1.5 * cm, 1 * cm,
-        datetime.now().strftime("%d/%m/%Y")
-    )
+
+    canvas_obj.setStrokeColor(COR_DIVISORIA)
+    canvas_obj.setLineWidth(0.5)
+    canvas_obj.line(1.5 * cm, 1.5 * cm, A4[0] - 1.5 * cm, 1.5 * cm)
+
+    canvas_obj.setFont("Helvetica", 7)
+    canvas_obj.setFillColor(COR_TEXTO_CLARO)
+    canvas_obj.drawString(1.5 * cm, 1.1 * cm, "Relatório de auditoria")
+    canvas_obj.drawCentredString(A4[0] / 2, 1.1 * cm, f"Página {doc.page}")
+    canvas_obj.drawRightString(A4[0] - 1.5 * cm, 1.1 * cm, datetime.now().strftime("%d/%m/%Y"))
+
+    canvas_obj.setFont("Helvetica-Bold", 6)
+    canvas_obj.setFillColor(COR_CONFIDENCIAL)
+    canvas_obj.drawCentredString(A4[0] / 2, 0.6 * cm, "Documento confidencial — distribuição restrita")
+
     canvas_obj.restoreState()
 
+# ===== FUNÇÃO PRINCIPAL =====
+
 def generate_pdf(report: AuditReport, output_path: str) -> str:
-    """Gera o relatorio PDF completo a partir de um AuditReport.
-
-    Args:
-        report: Objeto AuditReport com todos os dados
-        output_path: Caminho onde o PDF sera salvo
-
-    Returns:
-        Caminho do arquivo PDF gerado
-    """
-    styles = _build_styles()
+    """Gera o relatório PDF completo a partir de um AuditReport."""
+    estilos = _estilos()
 
     doc = SimpleDocTemplate(
         output_path,
@@ -444,30 +690,19 @@ def generate_pdf(report: AuditReport, output_path: str) -> str:
         rightMargin=1.5 * cm,
         leftMargin=1.5 * cm,
         topMargin=1.5 * cm,
-        bottomMargin=2 * cm,
+        bottomMargin=2.2 * cm,
     )
 
-    elements = []
+    largura = A4[0] - 3 * cm  # 17.0 cm
 
-    # Capa
-    elements.extend(_build_cover(report, styles))
+    elementos = []
+    elementos.extend(_construir_capa(report, estilos, largura))
+    elementos.extend(_construir_resumo(report, estilos, largura))
+    elementos.extend(_construir_matriz(report, estilos, largura))
+    elementos.extend(_construir_remediacao(report, estilos, largura))
+    elementos.extend(_construir_evidencias(report, estilos, largura))
+    elementos.extend(_construir_mapeamento(report, estilos, largura))
 
-    # Resumo executivo
-    elements.extend(_build_executive_summary(report, styles))
-
-    # Matriz de riscos
-    elements.extend(_build_risk_matrix(report, styles))
-
-    # Plano de remediacao
-    elements.extend(_build_remediation_plan(report, styles))
-
-    # Cadeia de evidencias
-    elements.extend(_build_evidence_chain(report, styles))
-
-    # Mapeamento legal e normativo
-    elements.extend(_build_legal_mapping(report, styles))
-
-    # Construir PDF
-    doc.build(elements, onFirstPage=_footer, onLaterPages=_footer)
+    doc.build(elementos, onFirstPage=_rodape, onLaterPages=_rodape)
 
     return output_path
