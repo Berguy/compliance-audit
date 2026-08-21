@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "compliance-audit"
+version = "0.1.0"
+description = "Motor de auditoria de conformidade LGPD/ISO 27000"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1",
+    "pydantic>=2.0",
+    "rich>=13.0",
+    "reportlab>=4.0",
+]
+
+[project.scripts]
+compliance-audit = "compliance_audit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
