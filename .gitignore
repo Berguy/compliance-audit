@@ -3,3 +3,6 @@ __pycache__/
 *.pdf
 build/
 dist/
+src/compliance_audit.egg-info/
+build/
+dist/
