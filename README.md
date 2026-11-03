@@ -3,7 +3,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![CI](https://github.com/Berguy/compliance-audit/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/tests-28%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-31%20passing-brightgreen)
 
 **Motor de auditoria de conformidade LGPD e ISO 27001 para achados de segurança.**
 
@@ -198,27 +198,14 @@ compliance-audit/
 
 ## Testes
 
-O projeto usa pytest. Para executar:
+O projeto usa pytest para os testes e Ruff para lint. Para executar localmente:
 
 ```bash
 pip install -e .
-pip install pytest
+pip install pytest ruff
 pytest
-```
+ruff check src/.
 
-A suíte tem 28 testes cobrindo:
-
-- Cálculo de score e conversão para nível de risco nas cinco faixas
-- Criação de itens de risco, incluindo severidade em minúsculas e regra desconhecida
-- Priorização de remediação ordenada por score
-- Resumo da matriz com e sem itens
-- Carregamento de findings nos dois formatos e tratamento de arquivo inválido
-- Construção de itens de risco, plano de remediação e cadeia de evidências
-- Geração do relatório completo e com zero achados
-- Validação dos modelos, incluindo rejeição de valores fora do intervalo
-- Recálculo de contadores do relatório
-
-A integração contínua roda em Python 3.11, 3.12 e 3.13, com lint via Ruff.
 
 ## Estrutura do relatório PDF
 
@@ -241,7 +228,7 @@ A integração contínua roda em Python 3.11, 3.12 e 3.13, com lint via Ruff.
 | Base de conhecimento ISO 27000 | 14 controles mapeados | Concluída |
 | Geração de relatório PDF | Capa, resumo, matriz e remediação | Concluída |
 | CLI com três formatos | pdf, json, summary | Concluída |
-| Suíte de testes automatizados | 28 testes com pytest | Concluída |
+| Suíte de testes automatizados | 31 testes com pytest | Concluída |
 | Integração contínua | GitHub Actions em Python 3.11, 3.12 e 3.13 | Concluída |
 | Exportação para CSV | Formato alternativo de relatório | Planejada |
 | Assinatura digital do PDF | Validação de autenticidade do relatório | Planejada |
