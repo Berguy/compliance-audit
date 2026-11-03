@@ -5,9 +5,9 @@ Calcula likelihood × impact para cada finding e categoriza
 em niveis de risco formais conforme ISO 27005.
 """
 
-from compliance_audit.models import RiskLevel, RiskItem, ComplianceMapping
-from compliance_audit.knowledge_base.lgpd import get_lgpd_article
 from compliance_audit.knowledge_base.iso27000 import get_iso_control
+from compliance_audit.knowledge_base.lgpd import get_lgpd_article
+from compliance_audit.models import ComplianceMapping, RiskItem, RiskLevel
 
 # Mapeamento de severidade do pii-guard para likelihood e impact
 SEVERITY_TO_LIKELIHOOD: dict[str, int] = {

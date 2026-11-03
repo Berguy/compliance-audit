@@ -7,7 +7,9 @@ formal, com matriz de riscos, plano de remediação e evidências.
 
 from datetime import datetime
 from enum import Enum
+
 from pydantic import BaseModel, Field
+
 
 class RiskLevel(str, Enum):
     """Níveis de risco da matriz 5x5."""

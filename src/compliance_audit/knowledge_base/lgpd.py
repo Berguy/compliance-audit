@@ -8,6 +8,7 @@ correspondente da família ISO 27000.
 
 from dataclasses import dataclass
 
+
 @dataclass
 class LGPDArticle:
     """Estrutura de um artigo da LGPD."""

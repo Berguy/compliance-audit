@@ -8,19 +8,20 @@ Uso:
 """
 
 import json
-import sys
 import subprocess
+import sys
 
 import click
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 
 from compliance_audit.engine import generate_audit_report
 from compliance_audit.generators.pdf_generator import generate_pdf
 from compliance_audit.risk.matrix import get_risk_matrix_summary
 
 console = Console()
+
 
 @click.command()
 @click.option(
@@ -85,7 +86,7 @@ def main(
     except FileNotFoundError as e:
         console.print(f"[red]Erro: {e}[/red]")
         sys.exit(1)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         console.print(f"[red]Erro inesperado: {e}[/red]")
         sys.exit(1)
 
@@ -103,9 +104,9 @@ def main(
         if platform.system() == "Windows":
             os.startfile(output_path)
         elif platform.system() == "Darwin":
-            subprocess.run(["open", output_path])
+            subprocess.run(["open", output_path], check=False)
         else:
-            subprocess.run(["xdg-open", output_path])
+            subprocess.run(["xdg-open", output_path], check=False)
 
     elif output_format == "json":
         report_dict = report.model_dump()
@@ -121,6 +122,7 @@ def main(
     elif output_format == "summary":
         summary = get_risk_matrix_summary(report.risk_items)
         _print_risk_summary(summary, client_name)
+
 
 def _print_summary(report) -> None:
     """Imprime resumo do relatorio no terminal."""
@@ -179,7 +181,11 @@ def _print_summary(report) -> None:
 
         # Plano de remediacao
         if report.remediation_plan:
-            rem_table = Table(title="Plano de Remediacao (Top 5)", show_header=True, header_style="bold yellow")
+            rem_table = Table(
+                title="Plano de Remediacao (Top 5)",
+                show_header=True,
+                header_style="bold yellow",
+            )
             rem_table.add_column("ID Acao", style="dim")
             rem_table.add_column("Finding")
             rem_table.add_column("Prioridade", justify="center")
@@ -205,6 +211,7 @@ def _print_summary(report) -> None:
 
             console.print(rem_table)
             console.print()
+
 
 def _print_risk_summary(summary: dict, client_name: str) -> None:
     """Imprime resumo compacto da matriz de riscos."""
@@ -236,6 +243,7 @@ def _print_risk_summary(summary: dict, client_name: str) -> None:
                 f"{risk['file']}:{risk['line']}"
             )
 
+
 def _serialize_datetimes(obj):
     """Converte objetos datetime para string recursivamente."""
     from datetime import datetime
@@ -251,6 +259,7 @@ def _serialize_datetimes(obj):
                 obj[i] = v.isoformat()
             else:
                 _serialize_datetimes(v)
+
 
 if __name__ == "__main__":
     main()

@@ -7,6 +7,7 @@ em software, cobrindo ISO 27001, 27002, 27005, 27017 e 27018.
 
 from dataclasses import dataclass
 
+
 @dataclass
 class ISOControl:
     """Estrutura de um controle da familia ISO 27000."""

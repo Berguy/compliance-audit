@@ -2,22 +2,22 @@
 Gerador de relatório PDF formal de auditoria de conformidade LGPD / ISO 27000.
 """
 
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import cm
 from reportlab.lib.colors import HexColor, white
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import cm
 from reportlab.platypus import (
-    SimpleDocTemplate,
+    Flowable,
+    PageBreak,
     Paragraph,
+    SimpleDocTemplate,
     Spacer,
     Table,
     TableStyle,
-    PageBreak,
-    Flowable,
 )
 
 from compliance_audit.models import AuditReport, RiskLevel

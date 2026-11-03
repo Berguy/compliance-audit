@@ -13,12 +13,11 @@ from pathlib import Path
 
 from compliance_audit.models import (
     AuditReport,
-    RiskItem,
-    RemediationAction,
     EvidenceItem,
-    RiskLevel,
-    RemediationStatus,
     EvidenceType,
+    RemediationAction,
+    RemediationStatus,
+    RiskItem,
 )
 from compliance_audit.risk.matrix import (
     create_risk_item,
