@@ -77,6 +77,7 @@ Cada um funciona de forma independente. Juntos, formam um pipeline completo de a
 Requisitos: Python 3.11 ou superior.
 
 ```bash
+
 git clone https://github.com/Berguy/compliance-audit.git
 cd compliance-audit
 
@@ -204,7 +205,8 @@ O projeto usa pytest para os testes e Ruff para lint. Para executar localmente:
 pip install -e .
 pip install pytest ruff
 pytest
-ruff check src/.
+ruff check src/
+````
 
 
 ## Estrutura do relatório PDF
