@@ -93,7 +93,7 @@ def test_generate_audit_report_completo(findings_file):
     assert report.report_id.startswith("AUD-")
     assert report.total_findings == 3
     assert report.critical_count == 2
-    assert report.low_count == 1
+    assert report.negligible_count == 1
     assert len(report.risk_items) == 3
     assert len(report.remediation_plan) == 3
     assert len(report.evidence_chain) == 3
